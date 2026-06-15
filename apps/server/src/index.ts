@@ -13,16 +13,18 @@ import {
   deleteTaskParam,
   deleteTaskRequest,
   getTaskParam,
-  getTaskResponse,
+  getTasksWithAuditLogsResponse,
+  STATUS_ORDER,
   updateTaskStatusParam,
   updateTaskStatusRequest,
 } from "./dto";
+import { env } from "./env";
 
 const app = express();
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: env.CORS_ORIGIN,
     methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
   })
 );
@@ -38,91 +40,63 @@ app.get("/health", (_req, res) => {
 app.get("/tasks", async (_req, res) => {
   const tasks = await getTasks();
 
-  const parsedTasks = getTaskResponse.safeParse(tasks);
-  if (!parsedTasks.success) {
-    res.status(500).json({
-      error: "Failed to parse tasks",
-    });
+  const parsed = getTasksWithAuditLogsResponse.safeParse({ tasks });
+  if (!parsed.success) {
+    res.status(500).json({ error: "Failed to parse tasks" });
     return;
   }
 
-  res.status(200).json({
-    tasks: parsedTasks.data,
-  });
+  res.status(200).json(parsed.data);
 });
 
 app.get("/tasks/:id", async (req, res) => {
   const param = getTaskParam.safeParse(req.params);
   if (!param.success) {
-    res.status(404).json({
-      error: {
-        message: "Task not found",
-      },
-    });
+    res.status(404).json({ error: "Task not found" });
     return;
   }
+
   const task = await getTaskById(param.data.id);
-
   if (!task) {
-    res.status(404).json({
-      error: "Task not found",
-    });
+    res.status(404).json({ error: "Task not found" });
     return;
   }
 
-  const parsedTask = getTaskResponse.safeParse(task);
-  if (!parsedTask.success) {
-    res.status(500).json({
-      error: "Failed to parse task",
-    });
-    return;
-  }
-
-  res.status(200).json({
-    task: parsedTask.data,
-  });
+  res.status(200).json({ task });
 });
 
 app.post("/tasks", async (req, res) => {
   const body = createTaskRequest.safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({
-      error: "Invalid task data",
-    });
+    res.status(400).json({ error: "Invalid task data" });
     return;
   }
 
   const task = await createTask(body.data.title, body.data.userName);
 
-  const parsedTask = createTaskResponse.safeParse(task);
-  if (!parsedTask.success) {
-    res.status(500).json({
-      error: "Failed to parse task",
-    });
+  const parsed = createTaskResponse.safeParse(task);
+  if (!parsed.success) {
+    res.status(500).json({ error: "Failed to parse task" });
     return;
   }
 
-  res.status(201).json(parsedTask.data);
+  res.status(201).json(parsed.data);
 });
 
 app.delete("/tasks/:id", async (req, res) => {
   const param = deleteTaskParam.safeParse(req.params);
   if (!param.success) {
-    res.status(404).json({
-      error: "Task not found",
-    });
+    res.status(404).json({ error: "Task not found" });
     return;
   }
 
-  const task = deleteTaskRequest.safeParse(req.body);
-  if (!task.success) {
-    res.status(400).json({
-      error: "Invalid request data",
-    });
+  const body = deleteTaskRequest.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Invalid request data" });
     return;
   }
 
-  await softDeleteTask(param.data.id, task.data.userName);
+  await softDeleteTask(param.data.id, body.data.userName);
 
   res.status(204).send();
 });
@@ -130,25 +104,38 @@ app.delete("/tasks/:id", async (req, res) => {
 app.put("/tasks/:id/status", async (req, res) => {
   const param = updateTaskStatusParam.safeParse(req.params);
   if (!param.success) {
-    res.status(404).json({
-      error: "Task not found",
-    });
+    res.status(404).json({ error: "Task not found" });
     return;
   }
 
   const body = updateTaskStatusRequest.safeParse(req.body);
   if (!body.success) {
+    res.status(400).json({ error: "Invalid request data" });
+    return;
+  }
+
+  const task = await getTaskById(param.data.id);
+  if (!task) {
+    res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  const currentIdx = STATUS_ORDER.indexOf(task.status);
+  const nextIdx = STATUS_ORDER.indexOf(body.data.toStatus);
+
+  if (currentIdx === nextIdx) {
+    res.status(200).json(task);
+    return;
+  }
+
+  if (nextIdx !== currentIdx + 1) {
     res.status(400).json({
-      error: "Invalid request data",
+      error: `Invalid status transition: ${task.status} → ${body.data.toStatus}. Must advance one step at a time.`,
     });
     return;
   }
 
-  await changeTaskStatus(
-    param.data.id,
-    body.data.expectedStatus,
-    body.data.userName
-  );
+  await changeTaskStatus(param.data.id, body.data.toStatus, body.data.userName);
 
   res.status(200).send();
 });
@@ -161,9 +148,7 @@ app.use(
     _next: express.NextFunction
   ) => {
     console.error(err);
-    res.status(500).json({
-      error: "Internal server error",
-    });
+    res.status(500).json({ error: "Internal server error" });
   }
 );
 
