@@ -1,0 +1,25 @@
+{
+  "name": "tasktrail",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "check": "pnpm dlx ultracite check",
+    "fix": "pnpm dlx ultracite fix"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@types/node": "catalog:",
+    "@tasktrail/tsconfig": "workspace:*",
+    "lefthook": "^2.1.9",
+    "typescript": "catalog:",
+    "ultracite": "7.8.3"
+  }
+}
